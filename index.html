@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>【0day】iQOO Z8（MT6895）：我们通过一个 0day 拿到了完整刷写能力</title>
+<meta name="description" content="不拆机、不降级、不用任何已知 CVE。设备没变砖，可复现。本文只陈述结果、方法与过程教训。">
+<meta name="theme-color" content="#0a0b0d">
+<meta property="og:type" content="article">
+<meta property="og:title" content="【0day】iQOO Z8（MT6895）：我们通过一个 0day 拿到了完整刷写能力">
+<meta property="og:description" content="不拆机、不降级、不用任何已知 CVE。设备没变砖，可复现。本文只陈述结果、方法与过程教训。">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  :root{
+    --bg:#0a0b0d;
+    --bg-soft:#0f1114;
+    --panel:#12151a;
+    --panel-2:#151920;
+    --line:#232730;
+    --line-soft:#1b1f26;
+    --fg:#e3e5e1;
+    --fg-2:#a8aeb5;
+    --fg-3:#787f88;
+    --accent:#d9a75f;
+    --accent-soft:rgba(217,167,95,.10);
+    --accent-line:rgba(217,167,95,.34);
+    --serif:"Noto Serif SC","Source Han Serif SC","Songti SC","SimSun",Georgia,"Times New Roman",serif;
+    --sans:"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+    --mono:"JetBrains Mono","SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --w:44rem;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--fg);
+    font-family:var(--serif);
+    font-size:16.5px;
+    line-height:2;
+    letter-spacing:.015em;
+    text-rendering:optimizeLegibility;
+  }
+  body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    z-index:-1;
+    background:
+      radial-gradient(1200px 600px at 50% -10%,rgba(217,167,95,.055),transparent 62%),
+      radial-gradient(900px 500px at 100% 110%,rgba(90,130,150,.045),transparent 60%);
+    pointer-events:none;
+  }
+  ::selection{background:rgba(217,167,95,.24)}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-line)}
+  a:hover{border-bottom-color:var(--accent)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+
+  /* progress */
+  .progress{position:fixed;top:0;left:0;right:0;height:2px;z-index:60;background:transparent}
+  .progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,rgba(217,167,95,.35),var(--accent));transition:width .08s linear}
+
+  /* top bar */
+  .bar{position:sticky;top:0;z-index:50;background:rgba(10,11,13,.78);backdrop-filter:blur(10px);border-bottom:1px solid var(--line-soft)}
+  .bar-in{max-width:1180px;margin:0 auto;padding:.7rem 1.4rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+  .brand{font-family:var(--mono);font-size:.76rem;letter-spacing:.14em;color:var(--fg-3);text-transform:lowercase}
+  .brand b{color:var(--accent);font-weight:500}
+  .bar nav{display:flex;gap:1.1rem;font-family:var(--mono);font-size:.76rem;letter-spacing:.06em}
+  .bar nav a{color:var(--fg-2);border-bottom:none}
+  .bar nav a:hover{color:var(--accent)}
+
+  .wrap{max-width:1180px;margin:0 auto;padding:0 1.4rem;display:grid;grid-template-columns:minmax(0,1fr);gap:2.5rem}
+  @media (min-width:1120px){
+    .wrap{grid-template-columns:minmax(0,var(--w)) 12.5rem;justify-content:center;column-gap:4.5rem}
+  }
+  main{min-width:0}
+
+  /* hero */
+  .hero{padding:5.2rem 0 2.6rem;animation:rise .7s ease both}
+  .kicker{font-family:var(--mono);font-size:.74rem;letter-spacing:.2em;color:var(--accent);margin:0 0 1.4rem;text-transform:uppercase}
+  .kicker span{color:var(--fg-3)}
+  h1{
+    font-size:clamp(1.55rem,1.1rem + 1.6vw,2.25rem);
+    line-height:1.62;
+    font-weight:600;
+    letter-spacing:.01em;
+    margin:0 0 1.3rem;
+  }
+  .lede{margin:0;color:var(--fg-2);font-size:1.02rem;max-width:36rem}
+  .hero-rule{margin-top:2.6rem;height:1px;background:linear-gradient(90deg,var(--accent-line),var(--line-soft) 55%,transparent)}
+
+  /* sections */
+  .sec{padding:2.9rem 0 0;scroll-margin-top:5.5rem}
+  .sec > *{opacity:0;transform:translateY(10px);transition:opacity .6s ease,transform .6s ease}
+  .sec.in > *{opacity:1;transform:none}
+  h2{
+    font-size:1.16rem;
+    font-weight:600;
+    line-height:1.7;
+    margin:0 0 1.15rem;
+    display:flex;
+    gap:.85rem;
+    align-items:baseline;
+  }
+  .num{font-family:var(--mono);font-size:.72rem;letter-spacing:.12em;color:var(--accent);opacity:.85;flex:none;transform:translateY(-1px)}
+  p{margin:0 0 1.2rem;color:var(--fg)}
+  .sec p:last-child{margin-bottom:0}
+  .dim{color:var(--fg-2)}
+  .mono{font-family:var(--mono)}
+
+  /* declaration */
+  .declare{
+    margin:1.2rem 0 0;
+    padding:1.5rem 1.6rem 1.35rem;
+    background:linear-gradient(180deg,rgba(217,167,95,.07),rgba(217,167,95,.025));
+    border:1px solid var(--line);
+    border-left:3px solid var(--accent);
+    border-radius:3px;
+  }
+  .declare .label{font-family:var(--mono);font-size:.72rem;letter-spacing:.2em;color:var(--accent);margin:0 0 .85rem}
+  .declare p{margin:0 0 .5rem;font-size:1.02rem;line-height:1.95}
+  .declare p:last-child{margin-bottom:0;color:var(--fg-2);font-size:.95rem}
+
+  /* pull quote */
+  .pull{
+    margin:0;
+    padding:.2rem 0 .2rem 1.15rem;
+    border-left:2px solid var(--accent-line);
+    font-size:1.24rem;
+    line-height:1.95;
+    color:#f0eee7;
+  }
+
+  /* rows list */
+  ul.rows{list-style:none;margin:.4rem 0 1.4rem;padding:0;border-top:1px solid var(--line-soft)}
+  ul.rows li{
+    display:grid;
+    grid-template-columns:8.2rem minmax(0,1fr);
+    gap:1rem;
+    padding:.85rem .2rem;
+    border-bottom:1px solid var(--line-soft);
+    transition:background .25s ease;
+  }
+  ul.rows li:hover{background:rgba(255,255,255,.018)}
+  ul.rows .k{color:var(--accent);font-size:.95rem;line-height:1.9}
+  ul.rows .v{color:var(--fg-2);font-size:.95rem;line-height:1.9}
+  @media (max-width:560px){
+    ul.rows li{grid-template-columns:1fr;gap:.15rem;padding:.9rem .2rem}
+    ul.rows .k{font-size:.9rem}
+  }
+
+  ul.bul{list-style:none;margin:.2rem 0 1.4rem;padding:0}
+  ul.bul li{position:relative;padding-left:1.5rem;margin-bottom:.65rem;color:var(--fg-2);font-size:.98rem}
+  ul.bul li::before{content:"";position:absolute;left:.15rem;top:.86em;width:.5rem;height:1px;background:var(--accent)}
+  ul.bul li:last-child{margin-bottom:0}
+
+  /* cards */
+  .cards{margin:.5rem 0 1.4rem;display:grid;gap:.75rem}
+  .card{
+    padding:1.15rem 1.3rem;
+    background:var(--panel);
+    border:1px solid var(--line-soft);
+    border-radius:3px;
+    transition:border-color .25s ease,transform .25s ease,background .25s ease;
+  }
+  .card:hover{border-color:var(--line);transform:translateY(-1px);background:var(--panel-2)}
+  .card p{margin:0;color:var(--fg);font-size:.99rem;line-height:2}
+
+  /* stat panel */
+  .stat{margin:.4rem 0 1.4rem;padding:1.5rem 1.6rem;background:var(--panel);border:1px solid var(--line-soft);border-radius:3px}
+  .stat .big{font-family:var(--mono);font-size:2.3rem;line-height:1;color:var(--accent);letter-spacing:.02em;margin:0 0 .95rem}
+  .stat p{margin:0;color:var(--fg-2);font-size:.98rem}
+
+  /* quotes */
+  .quotes{margin:.5rem 0 1.4rem;display:grid;gap:.9rem}
+  .quotes blockquote{
+    margin:0;
+    padding:.15rem 0 .15rem 1.15rem;
+    border-left:2px solid var(--accent-line);
+    font-size:1.04rem;
+    line-height:1.95;
+    color:var(--fg);
+  }
+
+  /* closing */
+  .closing{padding-bottom:3.6rem}
+  .closing .rule{margin:3.4rem 0 2.2rem;height:1px;background:linear-gradient(90deg,var(--line-soft),transparent)}
+
+  footer{border-top:1px solid var(--line-soft);background:var(--bg-soft)}
+  .foot-in{max-width:1180px;margin:0 auto;padding:2.2rem 1.4rem 3rem;display:flex;flex-wrap:wrap;gap:1rem 2rem;align-items:baseline;justify-content:space-between}
+  .foot-note{color:var(--fg-3);font-size:.86rem;line-height:1.9;margin:0;max-width:34rem}
+  .foot-links{font-family:var(--mono);font-size:.78rem;letter-spacing:.06em;display:flex;gap:1.2rem}
+  .foot-links a{color:var(--fg-2);border-bottom:none}
+  .foot-links a:hover{color:var(--accent)}
+
+  /* toc */
+  aside.toc{display:none}
+  @media (min-width:1120px){
+    aside.toc{display:block;position:sticky;top:5.5rem;align-self:start;height:max-content}
+    aside.toc .t-label{font-family:var(--mono);font-size:.68rem;letter-spacing:.2em;color:var(--fg-3);margin:0 0 .9rem;padding-left:.85rem}
+    aside.toc ol{list-style:none;margin:0;padding:0;border-left:1px solid var(--line-soft)}
+    aside.toc li{margin:0}
+    aside.toc a{
+      display:block;
+      padding:.42rem .2rem .42rem .85rem;
+      font-size:.82rem;
+      line-height:1.7;
+      color:var(--fg-3);
+      border-bottom:none;
+      margin-left:-1px;
+      border-left:1px solid transparent;
+      transition:color .2s ease,border-color .2s ease;
+    }
+    aside.toc a:hover{color:var(--fg-2)}
+    aside.toc a.on{color:var(--accent);border-left-color:var(--accent)}
+  }
+
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
+    .sec > *{opacity:1;transform:none}
+  }
+</style>
+</head>
+<body>
+<div class="progress" aria-hidden="true"><i id="bar"></i></div>
+
+<header class="bar">
+  <div class="bar-in">
+    <span class="brand">root-is-not-the-root <b>/ 0day</b></span>
+    <nav>
+      <a href="#declare">声明</a>
+      <a href="#s8">给同行三句</a>
+      <a href="https://github.com/CHYA0920/root-is-not-the-root">仓库</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <main>
+    <section class="hero">
+      <p class="kicker">0day <span>·</span> MT6895 <span>·</span> iQOO Z8 <span>·</span> 5 天 <span>·</span> DeepSeek</p>
+      <h1>【0day】iQOO Z8（MT6895）：我们通过一个 0day 拿到了完整刷写能力</h1>
+      <p class="lede">不拆机、不降级、不用任何已知 CVE。设备没变砖，可复现。</p>
+      <div class="hero-rule"></div>
+    </section>
+
+    <section class="sec declare" id="declare">
+      <p class="label">声明</p>
+      <p>本文不传播该漏洞，不提供任何可利用内容。</p>
+      <p>本文不展示与该漏洞相关的任何技术细节。</p>
+      <p>本文只陈述结果、方法与过程教训。</p>
+    </section>
+
+    <section class="sec" id="s1">
+      <h2><span class="num">01</span>一句话说明白</h2>
+      <p class="pull">我们用了一个 0day，把整机刷写拿下来了。</p>
+    </section>
+
+    <section class="sec" id="s2">
+      <h2><span class="num">02</span>顺带产出的东西，是副产品，也是必经的前置</h2>
+      <p class="dim">走到那一步之前，我们必须先从零造出一整条通信栈：</p>
+      <ul class="rows">
+        <li><span class="k">USB 通信层</span><span class="v">枚举、端点、传输时序、超时与重试，全部复刻</span></li>
+        <li><span class="k">帧协议</span><span class="v">设备每一句话怎么分包、怎么应答、帧头怎么算、什么时候要零长包</span></li>
+        <li><span class="k">观测通道</span><span class="v">设备日志、通信栈的另外半边</span></li>
+        <li><span class="k">刷写工具链</span><span class="v">下发、应答、进度、错误分类、失败回传</span></li>
+      </ul>
+      <p>这些一样都不是现成的，一样都省不掉。</p>
+      <p>没有它们，你连"和设备说上一句话"都做不到，更别说把东西送进去。所以严格讲，0day 是入口，这套基础设施是走到入口的路。而路，我们也是自己修的。</p>
+    </section>
+
+    <section class="sec" id="s3">
+      <h2><span class="num">03</span>关键：这不是 MTK 通用那一层</h2>
+      <p>MTK 的 USB 下载模式是通用且公开的。它的第一段引导，就是业内常说的 PR 模式，枚举、握手、镜像下发，资料够多，安全模型早被反复审过。</p>
+      <p class="dim">但 V厂 在 PR 之上叠了自己的一套：</p>
+      <ul class="bul">
+        <li>不在任何公开资料里</li>
+        <li>不在通用模型里，拿通用模型去推会推错</li>
+        <li>而且它引入了一套与通用模型不兼容的判定</li>
+      </ul>
+      <p>我们打的是这一层。</p>
+    </section>
+
+    <section class="sec" id="s4">
+      <h2><span class="num">04</span>时间成本</h2>
+      <div class="stat">
+        <p class="big">5 天</p>
+        <p>整整 5 天。每天 8 到 10 小时。主理人全程跟，夜里人睡，机器不停。</p>
+      </div>
+    </section>
+
+    <section class="sec" id="s5">
+      <h2><span class="num">05</span>分工</h2>
+      <p>人做判断与取舍，AI 做穷举与复算。两边单独都到不了终点。</p>
+      <p>这次的 AI 协作为主是 DeepSeek。长链推理、逐指令复算、穷举与交叉核对，基本都由它承担。它在没有人类监督的夜里也持续在跑。</p>
+    </section>
+
+    <section class="sec" id="s6">
+      <h2><span class="num">06</span>为什么难</h2>
+      <div class="cards">
+        <div class="card"><p>第一，信任链不是一道门，是一串门。前面过不去，后面一步都走不了，每道门的判据都不一样、不在同一层。</p></div>
+        <div class="card"><p>第二，静态分析能证"代码长什么样"，不能证"能不能用"。中间隔着运行期状态。我们把最多时间花在把静态结论改造成可测的二值问题上。一个结论如果不能被一次实验二分，它就不算结论。</p></div>
+        <div class="card"><p>第三，判据通道比漏洞本身更值钱。一半时间在建观测手段。没有通道，你连"失败了"和"根本没发出去"都分不清。</p></div>
+      </div>
+    </section>
+
+    <section class="sec" id="s7">
+      <h2><span class="num">07</span>最贵的一课</h2>
+      <p>整条链上，我们自己的工具才是最大的变量源。</p>
+      <p>有两发"看起来失败"的尝试，真因都在主机侧框架里，不在设备侧。其中一次让我们在错误方向上多打了四发。</p>
+    </section>
+
+    <section class="sec" id="s8">
+      <h2><span class="num">08</span>给同行三句</h2>
+      <div class="quotes">
+        <blockquote>"会死"不构成"没用"，"活着"也不构成"有用"。只有"拿到东西并且还活着"才算。</blockquote>
+        <blockquote>能力边界要在第一份文档里钉死，不是第七份。这一条我们付了十一发。</blockquote>
+        <blockquote>当"分析"和"现实"打架时，先怀疑你自己的尺子。</blockquote>
+      </div>
+    </section>
+
+    <section class="sec closing" id="s9">
+      <h2><span class="num">09</span>细节</h2>
+      <p>那一层里有什么、怎么进去的，不放。</p>
+      <p>链条不依赖任何已知 CVE，所以没有补丁可以依赖。影响面是整机，不是某个 App。</p>
+      <div class="rule"></div>
+    </section>
+  </main>
+
+  <aside class="toc" aria-label="目录">
+    <p class="t-label">CONTENTS</p>
+    <ol>
+      <li><a href="#s1">一句话说明白</a></li>
+      <li><a href="#s2">顺带产出的东西，是副产品，也是必经的前置</a></li>
+      <li><a href="#s3">关键：这不是 MTK 通用那一层</a></li>
+      <li><a href="#s4">时间成本</a></li>
+      <li><a href="#s5">分工</a></li>
+      <li><a href="#s6">为什么难</a></li>
+      <li><a href="#s7">最贵的一课</a></li>
+      <li><a href="#s8">给同行三句</a></li>
+      <li><a href="#s9">细节</a></li>
+    </ol>
+  </aside>
+</div>
+
+<footer>
+  <div class="foot-in">
+    <p class="foot-note">本站只陈述结果、方法与过程教训，不传播该漏洞，也不展示与此漏洞相关的任何技术细节。</p>
+    <div class="foot-links">
+      <a href="https://github.com/CHYA0920/root-is-not-the-root">github / 仓库</a>
+      <a href="#declare">回到声明</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var bar = document.getElementById('bar');
+  var secs = Array.prototype.slice.call(document.querySelectorAll('main .sec'));
+  var links = Array.prototype.slice.call(document.querySelectorAll('aside.toc a'));
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function progress(){
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    var p = h > 0 ? window.scrollY / h : 0;
+    bar.style.width = Math.min(100, Math.max(0, p * 100)).toFixed(2) + '%';
+  }
+  progress();
+  window.addEventListener('scroll', progress, {passive:true});
+  window.addEventListener('resize', progress);
+
+  if(!reduce && 'IntersectionObserver' in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting) en.target.classList.add('in');
+      });
+    }, {rootMargin:'0px 0px -12% 0px', threshold:0.06});
+    secs.forEach(function(s){ io.observe(s); });
+  } else {
+    secs.forEach(function(s){ s.classList.add('in'); });
+  }
+
+  if('IntersectionObserver' in window && links.length){
+    var map = {};
+    links.forEach(function(a){
+      var id = a.getAttribute('href').slice(1);
+      var el = document.getElementById(id);
+      if(el) map[id] = a;
+    });
+    var spy = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        var a = map[en.target.id];
+        if(!a) return;
+        if(en.isIntersecting){
+          links.forEach(function(x){ x.classList.remove('on'); });
+          a.classList.add('on');
+        }
+      });
+    }, {rootMargin:'-20% 0px -70% 0px', threshold:0});
+    Object.keys(map).forEach(function(id){ spy.observe(document.getElementById(id)); });
+  }
+})();
+</script>
+</body>
+</html>
