@@ -11,6 +11,7 @@
 <meta property="og:description" content="不拆机、不降级、不用任何已知 CVE。设备没变砖，可复现。本文只陈述结果、方法与过程教训。">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<script>document.documentElement.className += " js";</script>
 <style>
   :root{
     --bg:#0a0b0d;
@@ -92,8 +93,8 @@
 
   /* sections */
   .sec{padding:2.9rem 0 0;scroll-margin-top:5.5rem}
-  .sec > *{opacity:0;transform:translateY(10px);transition:opacity .6s ease,transform .6s ease}
-  .sec.in > *{opacity:1;transform:none}
+  html.js .sec > *{opacity:0;transform:translateY(10px);transition:opacity .6s ease,transform .6s ease}
+  html.js .sec.in > *{opacity:1;transform:none}
   h2{
     font-size:1.16rem;
     font-weight:600;
